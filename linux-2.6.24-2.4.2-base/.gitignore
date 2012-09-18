@@ -5,18 +5,18 @@
 #
 # Normal rules
 #
-.*
-*.o
-*.o.*
-*.a
-*.s
-*.ko
-*.so
-*.so.dbg
-*.mod.c
-*.i
-*.lst
-*.symtypes
+#.*
+#*.o
+#*.o.*
+#*.a
+#*.s
+#*.ko
+#*.so
+#*.so.dbg
+#*.mod.c
+#*.i
+#*.lst
+#*.symtypes
 
 #
 # Top-level generic files
@@ -50,5 +50,5 @@ series
 # cscope files
 cscope.*
 
-*.orig
-*.rej
+#*.orig
+#*.rej

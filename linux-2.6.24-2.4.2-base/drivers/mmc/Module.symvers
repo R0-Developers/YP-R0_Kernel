@@ -1,0 +1,2 @@
+0x00000000	mmc_cleanup_queue	/home/sejong/R0_Open/1.16_sys/kernel/linux-2.6.24-2.4.2-base/drivers/mmc/card/mmc_block	EXPORT_SYMBOL
+0x00000000	mxc_mmc_force_detect	/home/sejong/R0_Open/1.16_sys/kernel/linux-2.6.24-2.4.2-base/drivers/mmc/host/mx_sdhci	EXPORT_SYMBOL
