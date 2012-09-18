@@ -1,0 +1,12 @@
+#
+# Unified Flash Device configuration
+#
+
+menu "TinyBML Support for cramfs"
+
+config RFS_TINYBML
+        bool "Using Tiny Whimory for Cramfs"
+        help
+          cramfs using flash device
+endmenu
+

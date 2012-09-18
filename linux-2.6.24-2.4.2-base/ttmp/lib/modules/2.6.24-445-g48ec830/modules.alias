@@ -1,0 +1,23 @@
+# Aliases extracted from modules themselves.
+alias char-major-86-* ch
+alias char-major-21-* sg
+alias scsi:t-0x0e* sd_mod
+alias scsi:t-0x07* sd_mod
+alias scsi:t-0x00* sd_mod
+alias block-major-135-* sd_mod
+alias block-major-134-* sd_mod
+alias block-major-133-* sd_mod
+alias block-major-132-* sd_mod
+alias block-major-131-* sd_mod
+alias block-major-130-* sd_mod
+alias block-major-129-* sd_mod
+alias block-major-128-* sd_mod
+alias block-major-71-* sd_mod
+alias block-major-70-* sd_mod
+alias block-major-69-* sd_mod
+alias block-major-68-* sd_mod
+alias block-major-67-* sd_mod
+alias block-major-66-* sd_mod
+alias block-major-65-* sd_mod
+alias block-major-8-* sd_mod
+alias input:b*v*p*e*-e*k*r*a*m*l*s*f*w* evdev

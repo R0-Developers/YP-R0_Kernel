@@ -1,0 +1,553 @@
+/*
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
+ *
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
+ */
+
+/*
+* Bigbang project
+* Copyright (c) 2009 VPS R&D Group, Samsung Electronics, Inc.
+* All rights reserved.
+*
+* This software is the confidential and proprietary information
+* of Samsung Electronics, Inc. ("Confidential Information").  You
+* shall not disclose such Confidential Information and shall use
+* it only in accordance with the terms of the license agreement
+* you entered into with Samsung Electronics.
+*/
+
+/**
+* @file		mxcfb_smd_qvga.c
+* @brief	MXC Frame buffer driver for S6D04H0
+*
+* @author	Eung Chan Kim (eungchan.kim@samsung.com)
+*/
+
+/*!
+ * Include files
+ */
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/console.h>
+#include <linux/delay.h>
+#include <linux/errno.h>
+#include <linux/fb.h>
+#include <linux/init.h>
+#if !defined(CONFIG_MACH_MX37_BIGBANG)
+#include <linux/regulator/regulator.h>
+#endif
+#include <linux/spi/spi.h>
+#include <asm/arch/mxcfb.h>
+#include <asm/mach-types.h>
+#include <asm/arch/gpio.h>
+
+typedef enum {
+	CABC_ON,
+	CABC_OFF
+} eCtrl_cabc_t;
+
+extern void afe_backlight_on(void);
+extern void afe_backlight_off(void);
+static void lcd_poweron(void);
+static void lcd_poweroff(void);
+static int lcd_suspend(struct spi_device *spi, pm_message_t message);
+static int lcd_resume(struct spi_device *spi);
+
+static void (*lcd_reset) (void);
+void (*lcd_cabc_on)(void);
+void (*lcd_cabc_off)(void);
+
+EXPORT_SYMBOL_GPL(lcd_cabc_on);
+EXPORT_SYMBOL_GPL(lcd_cabc_off);
+
+#if !defined(CONFIG_MACH_MX37_BIGBANG)
+static struct regulator *io_reg;
+static struct regulator *core_reg;
+#endif
+static struct spi_device *lcd_spi;
+
+
+static struct fb_videomode video_modes[] = {
+	{
+		"smd-qvga", 	/* LCD Identifier (optional) */
+		60, 			/* refresh rate. (optional) */
+		240, 			/* x-res */
+		320,			/* y-res */
+		192185, 		/* pixel clock in ps = 10^12/(refr_rate*(left+right+hsync+x-res)*(upper+lower+vsync+y-res)) */
+		8, 				/* left margin */
+		4, 				/* right margin */
+		4, 				/* upper_margin */
+		5, 				/* lower_margin */
+		10, 			/* hsync len */
+		2,				/* vsync len */
+		FB_SYNC_CLK_INVERT,			/* sync */
+		FB_VMODE_NONINTERLACED,		/* vmode */
+		0							/* flag */
+	},
+};
+
+static void lcd_init_fb(struct fb_info *info)
+{
+	struct fb_var_screeninfo var;
+
+	memset(&var, 0, sizeof(var));
+
+	fb_videomode_to_var(&var, &video_modes[0]);
+
+	if (machine_is_mx31_3ds()) {
+		var.upper_margin = 0;
+		var.left_margin = 0;
+	}
+
+	var.activate = FB_ACTIVATE_ALL;
+	var.yres_virtual = var.yres * 2;
+
+	acquire_console_sem();
+	info->flags |= FBINFO_MISC_USEREVENT;
+	fb_set_var(info, &var);
+	info->flags &= ~FBINFO_MISC_USEREVENT;
+	release_console_sem();
+}
+
+static int lcd_fb_event(struct notifier_block *nb, unsigned long val, void *v)
+{
+	struct fb_event *event = v;
+
+	if (strcmp(event->info->fix.id, "DISP3 BG")) {
+		return 0;
+	}
+
+	switch (val) {
+	case FB_EVENT_FB_REGISTERED:
+		printk("LCD_DEBUG : FB REGISTERED!\n");
+		lcd_init_fb(event->info);
+		lcd_poweron();
+		break;
+	case FB_EVENT_BLANK:
+		if ((event->info->var.xres != 240) || (event->info->var.yres != 320))
+		{
+			printk("LCD_DEBUG : UNMATCHED RESOLUTION!\n");
+			break;
+		}
+		if (*((int *)event->data) == FB_BLANK_UNBLANK)
+		{
+			printk("LCD_DEBUG : FB UNBLANK!\n");
+			lcd_poweron();
+		}
+		else
+		{
+			printk("LCD_DEBUG : FB BLANK!\n");
+			lcd_poweroff();
+		}
+		break;
+	case FB_EVENT_SUSPEND:
+		printk("LCD_DEBUG : FB SUSPEND!\n");
+		lcd_poweroff();
+		break;
+	case FB_EVENT_RESUME:
+		printk("LCD_DEBUG : FB RESUME!\n");
+		lcd_poweron();
+		break;
+	}
+	return 0;
+}
+
+static struct notifier_block nb = {
+	.notifier_call = lcd_fb_event,
+};
+
+static int lcd_spi_setup(struct spi_device *spi)
+{
+	spi->mode = SPI_MODE_3;
+	spi->bits_per_word = 9;
+        return spi_setup(spi);
+}
+
+
+/*!
+ * This function is called whenever the SPI slave device is detected.
+ * @param	spi	the SPI slave device
+ * @return 	Returns 0 on SUCCESS and error on FAILURE.
+ */
+static int __devinit lcd_spi_probe(struct spi_device *spi)
+{
+	int i;
+	struct mxc_lcd_platform_data *plat = spi->dev.platform_data;
+	lcd_spi = spi;
+
+	if (plat) {
+#if !defined(CONFIG_MACH_MX37_BIGBANG)
+		io_reg = regulator_get(&spi->dev, plat->io_reg);
+		if (!IS_ERR(io_reg)) {
+			regulator_set_voltage(io_reg, 1800000);
+			regulator_enable(io_reg);
+		}
+		core_reg = regulator_get(&spi->dev, plat->core_reg);
+		if (!IS_ERR(core_reg)) {
+			regulator_set_voltage(core_reg, 2800000);
+			regulator_enable(core_reg);
+		}
+#endif
+		lcd_reset = plat->reset;
+		if (lcd_reset)
+			lcd_reset();
+	}
+
+	lcd_spi_setup(lcd_spi);
+
+	for (i = 0; i < num_registered_fb; i++) {
+		if (strcmp(registered_fb[i]->fix.id, "DISP3 BG") == 0) {
+			lcd_init_fb(registered_fb[i]);
+			fb_prepare_logo(registered_fb[i], 0);
+			fb_show_logo(registered_fb[i], 0);
+//			lcd_poweron();
+		}
+	}
+
+	fb_register_client(&nb);
+
+	return 0;
+}
+
+static int __devexit lcd_spi_remove(struct spi_device *spi)
+{
+	fb_unregister_client(&nb);
+	lcd_poweroff();
+#if !defined(CONFIG_MACH_MX37_BIGBANG)
+	regulator_put(io_reg, &spi->dev);
+	regulator_put(core_reg, &spi->dev);
+#endif
+	return 0;
+}
+
+/*!
+ * spi driver structure for smd-qvga
+ */
+#define PARAM_A0_BIT	0x100
+static struct spi_driver lcd_spi_dev_driver = {
+
+	.driver = {
+		   .name = "lcd_spi",
+		   .owner = THIS_MODULE,
+		   },
+	.probe = lcd_spi_probe,
+	.remove = __devexit_p(lcd_spi_remove),
+	.suspend = lcd_suspend,
+	.resume = lcd_resume,
+};
+
+/*!
+ * 3-wire 9-bit serial interface II
+ */
+static void spi_write_9bit_if2(struct spi_device *spi, const u8 *buf, size_t len)
+{
+	size_t i;
+	u8 *tmp = (u8 *)buf;
+	u16 *sendbuf;
+	u16 *dat = kmalloc(sizeof(u16)*len, GFP_KERNEL);
+	sendbuf = dat;
+
+	*dat++ = (u16)*tmp++;
+	for(i=1; i<len; i++)
+	{
+		*dat++ = PARAM_A0_BIT|(u16)*tmp++;
+	}
+
+	spi_write_16(spi, sendbuf, len);
+	kfree(sendbuf);
+}
+
+/* 090320, rev.03 */
+void cabc_on_seq(void)
+{
+	const u8 cmd1[] = {0x55,
+							0x03,};
+
+	spi_write_9bit_if2(lcd_spi, cmd1, ARRAY_SIZE(cmd1));
+	msleep(10);
+}
+
+void cabc_off_seq(void)
+{
+	const u8 cmd1[] = {0x55,
+							0x00,};
+
+	spi_write_9bit_if2(lcd_spi, cmd1, ARRAY_SIZE(cmd1));
+	msleep(10);
+}
+
+static void cabc_seq(eCtrl_cabc_t mode)
+{
+	const u8 cmd1[] = {0x51,
+							0xD9,};
+	const u8 cmd2[] = {0x53,
+							0x2C,};
+	const u8 cmd3[] = {0x55,
+							0x00,};
+	const u8 cmd4[] = {0x5E,
+							0x03,};
+	const u8 cmd5[] = {0xC0,
+							0x80, 0x80, 0x20,};
+	const u8 cmd6[] = {0xC1,
+							0x03,};
+	const u8 cmd7[] = {0xC3,
+							0x7F, 0x3D,};
+
+	spi_write_9bit_if2(lcd_spi, cmd1, ARRAY_SIZE(cmd1));
+	spi_write_9bit_if2(lcd_spi, cmd2, ARRAY_SIZE(cmd2));
+	spi_write_9bit_if2(lcd_spi, cmd3, ARRAY_SIZE(cmd3));
+	spi_write_9bit_if2(lcd_spi, cmd4, ARRAY_SIZE(cmd4));
+	spi_write_9bit_if2(lcd_spi, cmd5, ARRAY_SIZE(cmd5));
+	spi_write_9bit_if2(lcd_spi, cmd6, ARRAY_SIZE(cmd6));
+	spi_write_9bit_if2(lcd_spi, cmd7, ARRAY_SIZE(cmd7));
+
+	if(mode == CABC_ON)
+		cabc_on_seq();
+	else if(mode == CABC_OFF)
+		cabc_off_seq();
+}
+
+static void initialize_seq_1(void)
+{
+	const u8 cmd1[] = {0xF0,
+							0x5A, 0x5A,};
+	const u8 cmd2[] = {0xF3,
+							0x00, 0x00, 0x00,};
+	const u8 cmd3[] = {0x11, };
+	const u8 cmd4[] = {0xFC,
+							0x5A, 0x5A,};
+	const u8 cmd5[] = {0xFD,
+							0x00, 0x00, 0x10, 0x14, 0x12,
+							0x0A, 0x04,};
+	const u8 cmd6[] = {0xF4,
+							0x0B, 0x00, 0x00, 0x00, 0x22,
+							0x64, 0x01, 0x02, 0x3F, 0x66,
+							0x05,};
+	const u8 cmd7[] = {0xF5,
+							0x00, 0x47, 0x67, 0x00, 0x00,
+							0x00, 0x00, 0x00, 0x0D, 0x0D,};
+	const u8 cmd8[] = {0xF3,
+							0x00, 0x03, 0x08, 0x00, 0x00,};
+	const u8 cmd9[] = {0xF3,
+							0x00, 0x0F, 0x09,};
+	const u8 cmd10[] = {0xF3,
+							0x00, 0x1F,};
+	const u8 cmd11[] = {0xF3,
+							0x00, 0x3F,};
+	const u8 cmd12[] = {0xF3,
+							0x00, 0x3F, 0x0B,};
+	const u8 cmd13[] = {0xF3,
+							0x00, 0x7F,};
+	const u8 cmd14[] = {0xF3,
+							0x00, 0xFF,};
+	const u8 cmd15[] = {0xFD,
+							0x00, 0x00, 0x10, 0x14, 0x12,
+							0x00,};
+	const u8 cmd16[] = {0xF3,
+							0x00, 0xFF, 0x1F, 0x00, 0x02,};
+	const u8 cmd17[] = {0xF4,
+							0x0B, 0x00, 0x00, 0x00, 0x22,
+							0x67, 0x04, 0x02, 0x2A, 0x66,
+							0x05,};
+	const u8 cmd18[] = {0x35,};
+	const u8 cmd19[] = {0x36, 0x48,};
+	const u8 cmd20[] = {0x3A, 0x60,};
+	const u8 cmd21[] = {0xF2,
+							0x28, 0x79, 0x7F, 0x05, 0x05,
+							0x00, 0x00, 0x15, 0x48, 0x00,
+							0x07, 0x01, 0x00, 0x00, 0x79,
+							0x08, 0x08,};
+	const u8 cmd22[] = {0xF6,
+							0x01, 0x00, 0x07, 0x00, 0x01,
+							0x0C, 0x03, 0x0C, 0x03,};
+	const u8 cmd23[] = {0xF4,
+							0x09, 0x00, 0x00, 0x00, 0x22,
+							0x67, 0x04, 0x02, 0x2A, 0x62,
+							0x03};
+	const u8 cmd24[] = {0xF7,
+							0x01, 0x01, 0x00,};
+	const u8 cmd25[] = {0xF8,
+							0x33, 0x00, 0x00,};
+
+	spi_write_9bit_if2(lcd_spi, cmd1, ARRAY_SIZE(cmd1));
+	spi_write_9bit_if2(lcd_spi, cmd2, ARRAY_SIZE(cmd2));
+	spi_write_9bit_if2(lcd_spi, cmd3, ARRAY_SIZE(cmd3));
+	msleep(10);
+	spi_write_9bit_if2(lcd_spi, cmd4, ARRAY_SIZE(cmd4));
+	spi_write_9bit_if2(lcd_spi, cmd5, ARRAY_SIZE(cmd5));
+	spi_write_9bit_if2(lcd_spi, cmd6, ARRAY_SIZE(cmd6));
+	spi_write_9bit_if2(lcd_spi, cmd7, ARRAY_SIZE(cmd7));
+	msleep(5);
+	spi_write_9bit_if2(lcd_spi, cmd8, ARRAY_SIZE(cmd8));
+	msleep(5);
+	spi_write_9bit_if2(lcd_spi, cmd9, ARRAY_SIZE(cmd9));
+	msleep(5);
+	spi_write_9bit_if2(lcd_spi, cmd10, ARRAY_SIZE(cmd10));
+	msleep(10);
+	spi_write_9bit_if2(lcd_spi, cmd11, ARRAY_SIZE(cmd11));
+	msleep(20);
+	spi_write_9bit_if2(lcd_spi, cmd12, ARRAY_SIZE(cmd12));
+	msleep(10);
+	spi_write_9bit_if2(lcd_spi, cmd13, ARRAY_SIZE(cmd13));
+	msleep(30);
+	spi_write_9bit_if2(lcd_spi, cmd14, ARRAY_SIZE(cmd14));
+	spi_write_9bit_if2(lcd_spi, cmd15, ARRAY_SIZE(cmd15));
+	msleep(20);
+	spi_write_9bit_if2(lcd_spi, cmd16, ARRAY_SIZE(cmd16));
+	spi_write_9bit_if2(lcd_spi, cmd17, ARRAY_SIZE(cmd17));
+	msleep(10);
+	spi_write_9bit_if2(lcd_spi, cmd18, ARRAY_SIZE(cmd18));
+	spi_write_9bit_if2(lcd_spi, cmd19, ARRAY_SIZE(cmd19));
+	spi_write_9bit_if2(lcd_spi, cmd20, ARRAY_SIZE(cmd20));
+
+	cabc_seq(CABC_ON);
+
+	spi_write_9bit_if2(lcd_spi, cmd21, ARRAY_SIZE(cmd21));
+	spi_write_9bit_if2(lcd_spi, cmd22, ARRAY_SIZE(cmd22));
+	spi_write_9bit_if2(lcd_spi, cmd23, ARRAY_SIZE(cmd23));
+	spi_write_9bit_if2(lcd_spi, cmd24, ARRAY_SIZE(cmd24));
+	spi_write_9bit_if2(lcd_spi, cmd25, ARRAY_SIZE(cmd25));
+}
+
+static void initialize_seq_2(void)
+{
+	const u8 cmd1[] = {0xF3,
+							0x01,};
+	const u8 cmd2[] = {0xF0,
+							0xA5, 0xA5,};
+	const u8 cmd3[] = {0xFC,
+							0xA5, 0xA5,};
+
+	spi_write_9bit_if2(lcd_spi, cmd1, ARRAY_SIZE(cmd1));
+	spi_write_9bit_if2(lcd_spi, cmd2, ARRAY_SIZE(cmd2));
+	spi_write_9bit_if2(lcd_spi, cmd3, ARRAY_SIZE(cmd3));
+}
+
+static void gamma_setting_seq(void)
+{
+	const u8 cmd1[] = {0xF9,
+							0x04,};
+	const u8 cmd2[] = {0xFA,
+							0x00, 0x0A, 0x22, 0x22, 0x22,
+							0x22, 0x15, 0x3F, 0x2D, 0x1C,
+							0x0A, 0x00, 0x00, 0x00, 0x00,
+							0x00,};
+	const u8 cmd3[] = {0xFB,
+							0x00, 0x00, 0x22, 0x22, 0x22,
+							0x22, 0x15, 0x3F, 0x2D, 0x1C,
+							0x0A, 0x00, 0x00, 0x00, 0x00,
+							0x00,};
+	const u8 cmd4[] = {0xF9,
+							0x02,};
+	const u8 cmd5[] = {0xFA,
+							0x00, 0x0A, 0x22, 0x22, 0x22,
+							0x22, 0x15, 0x3F, 0x2D, 0x1C,
+							0x0A, 0x00, 0x00, 0x00, 0x00,
+							0x00,};
+	const u8 cmd6[] = {0xFB,
+							0x00, 0x00, 0x22, 0x22, 0x22,
+							0x22, 0x15, 0x3F, 0x2D, 0x1C,
+							0x0A, 0x00, 0x00, 0x00, 0x00,
+							0x00,};
+	const u8 cmd7[] = {0xF9,
+							0x01,};
+	const u8 cmd8[] = {0xFA,
+							0x00, 0x0A, 0x22, 0x22, 0x22,
+							0x22, 0x15, 0x3F, 0x2D, 0x1C,
+							0x0A, 0x00, 0x00, 0x00, 0x00,
+							0x00,};
+	const u8 cmd9[] = {0xFB,
+							0x00, 0x00, 0x22, 0x22, 0x22,
+							0x22, 0x15, 0x3F, 0x2D, 0x1C,
+							0x0A, 0x00, 0x00, 0x00, 0x00,
+							0x00,};
+
+	spi_write_9bit_if2(lcd_spi, cmd1, ARRAY_SIZE(cmd1));
+	spi_write_9bit_if2(lcd_spi, cmd2, ARRAY_SIZE(cmd2));
+	spi_write_9bit_if2(lcd_spi, cmd3, ARRAY_SIZE(cmd3));
+	spi_write_9bit_if2(lcd_spi, cmd4, ARRAY_SIZE(cmd4));
+	spi_write_9bit_if2(lcd_spi, cmd5, ARRAY_SIZE(cmd5));
+	spi_write_9bit_if2(lcd_spi, cmd6, ARRAY_SIZE(cmd6));
+	spi_write_9bit_if2(lcd_spi, cmd7, ARRAY_SIZE(cmd7));
+	spi_write_9bit_if2(lcd_spi, cmd8, ARRAY_SIZE(cmd8));
+	spi_write_9bit_if2(lcd_spi, cmd9, ARRAY_SIZE(cmd9));
+}
+
+static void display_on_seq(void)
+{
+ 	const u8 cmd1[] = {0x29,};
+
+ 	spi_write_9bit_if2(lcd_spi, cmd1, ARRAY_SIZE(cmd1));
+	msleep(40);
+}
+
+static void display_off_seq(void)
+{
+ 	const u8 cmd1[] = {0x28,};
+
+ 	spi_write_9bit_if2(lcd_spi, cmd1, ARRAY_SIZE(cmd1));
+	msleep(40);
+}
+
+static int lcd_suspend(struct spi_device *spi, pm_message_t message)
+{
+	const u8 cmd1[] = {0x10,};
+
+	display_off_seq();
+	spi_write_9bit_if2(lcd_spi, cmd1, ARRAY_SIZE(cmd1));
+	msleep(120);
+
+	return 0;
+}
+
+static int lcd_resume(struct spi_device *spi)
+{
+	initialize_seq_1();
+	gamma_setting_seq();
+	initialize_seq_2();
+	display_on_seq();
+
+	return 0;
+}
+
+static void lcd_poweron(void)
+{
+	//2  power on : vci
+	msleep(50);
+	lcd_reset(); //2 10ms
+	initialize_seq_1();
+	gamma_setting_seq();
+	initialize_seq_2();
+	display_on_seq();
+
+	afe_backlight_on();
+}
+static void lcd_poweroff(void)
+{
+	display_off_seq();
+	afe_backlight_off();
+}
+
+static int __init smd_lcd_init(void)
+{
+	lcd_cabc_on = cabc_on_seq;
+	lcd_cabc_off = cabc_off_seq;
+
+	return spi_register_driver(&lcd_spi_dev_driver);
+}
+
+static void __exit smd_lcd_exit(void)
+{
+	spi_unregister_driver(&lcd_spi_dev_driver);
+}
+
+module_init(smd_lcd_init);
+module_exit(smd_lcd_exit);
+
+
+MODULE_AUTHOR("Eung Chan Kim <eungchan.kim@samsung.com>");
+MODULE_DESCRIPTION("Samsung mobile display QVGA LCD driver");
+MODULE_LICENSE("GPL");

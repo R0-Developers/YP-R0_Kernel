@@ -1,0 +1,31 @@
+#
+#   Makefile for eXtended Sector Remapper (WMR) driver on kernel 2.6
+#
+#   Copyright(C) 2004-2006, Samsung Electronics, Co., Ltd.
+#
+
+# WMR base module
+BSP_DIR         = ../../../../board
+TINEWHIMORY_DIR     = tinywhimory
+
+obj-$(CONFIG_RFS_TINYBML)			+= wmr.o
+
+# Should keep the build sequence. (wmr_base -> bml_block)
+wmr-objs	:= wmr_base.o bml_block.o bml_blkdev.o
+# This objects came from WMR, It will be never modified.
+
+wmr-objs	+= $(TINEWHIMORY_DIR)/WMRGlobal.o 
+wmr-objs	+= $(TINEWHIMORY_DIR)/VFLBuffer.o 
+wmr-objs	+= $(TINEWHIMORY_DIR)/VFLInterface.o
+
+
+wmr-objs	+= $(TINEWHIMORY_DIR)/WMROAM.o
+
+wmr-objs	+= $(TINEWHIMORY_DIR)/FIL.o 
+wmr-objs	+= $(TINEWHIMORY_DIR)/memory.o
+wmr-objs	+= $(TINEWHIMORY_DIR)/NFC_Samsung.o
+
+wmr-objs	+= $(TINEWHIMORY_DIR)/WMRExam.o 
+wmr-objs	+= $(TINEWHIMORY_DIR)/WMRRFS.o
+ 
+

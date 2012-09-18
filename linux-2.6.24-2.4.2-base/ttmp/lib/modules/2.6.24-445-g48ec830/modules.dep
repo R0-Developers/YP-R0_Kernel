@@ -1,0 +1,16 @@
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/usb/gadget/arcotg_udc.ko:
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/usb/gadget/g_file_storage.ko: /lib/modules/2.6.24-445-g48ec830/kernel/drivers/usb/gadget/arcotg_udc.ko
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/usb/gadget/gadgetfs.ko: /lib/modules/2.6.24-445-g48ec830/kernel/drivers/usb/gadget/arcotg_udc.ko
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/base/firmware_class.ko:
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/scsi/ch.ko: /lib/modules/2.6.24-445-g48ec830/kernel/drivers/scsi/scsi_mod.ko
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/scsi/sg.ko: /lib/modules/2.6.24-445-g48ec830/kernel/drivers/scsi/scsi_mod.ko
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/scsi/scsi_wait_scan.ko: /lib/modules/2.6.24-445-g48ec830/kernel/drivers/scsi/scsi_mod.ko
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/scsi/sd_mod.ko: /lib/modules/2.6.24-445-g48ec830/kernel/drivers/scsi/scsi_mod.ko
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/scsi/scsi_mod.ko:
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/input/evdev.ko: /lib/modules/2.6.24-445-g48ec830/kernel/drivers/input/input-core.ko
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/input/input-core.ko:
+/lib/modules/2.6.24-445-g48ec830/kernel/drivers/wmr/wmr.ko:
+/lib/modules/2.6.24-445-g48ec830/kernel/fs/rfs/rfs.ko:
+/lib/modules/2.6.24-445-g48ec830/kernel/fs/nls/nls_ascii.ko:
+/lib/modules/2.6.24-445-g48ec830/kernel/fs/nls/nls_utf8.ko:
+/lib/modules/2.6.24-445-g48ec830/kernel/sound/soc/imx/snd-soc-imx-record-from-playback.ko:
