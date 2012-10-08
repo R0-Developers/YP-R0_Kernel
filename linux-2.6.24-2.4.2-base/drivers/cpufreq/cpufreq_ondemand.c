@@ -25,7 +25,7 @@
  */
 
 #define DEF_FREQUENCY_UP_THRESHOLD		(95) //default is 80
-#define MIN_FREQUENCY_UP_THRESHOLD		(11)
+#define MIN_FREQUENCY_UP_THRESHOLD		(20)
 #define MAX_FREQUENCY_UP_THRESHOLD		(100)
 
 /*
@@ -90,8 +90,8 @@ static struct dbs_tuners {
 	unsigned int powersave_bias;
 } dbs_tuners_ins = {
 	.up_threshold = DEF_FREQUENCY_UP_THRESHOLD,
-	.ignore_nice = 0,
-	.powersave_bias = 0,
+	.ignore_nice = 1, //default "0,"
+	.powersave_bias = 0, //try  250 for use 400mhz instead of 532mhz (probably don't work)
 };
 
 static inline cputime64_t get_cpu_idle_time(unsigned int cpu)

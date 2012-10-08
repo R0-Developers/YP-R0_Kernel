@@ -21,12 +21,12 @@
 #
 # Top-level generic files
 #
-tags
-TAGS
-vmlinux*
-!vmlinux.lds.S
-System.map
-Module.symvers
+#tags
+#TAGS
+#vmlinux*
+#!vmlinux.lds.S
+#System.map
+#Module.symvers
 !.gitignore
 
 #
@@ -41,11 +41,11 @@ include/linux/version.h
 include/linux/utsrelease.h
 
 # stgit generated dirs
-patches-*
+#patches-*
 
 # quilt's files
-patches
-series
+#patches
+#series
 
 # cscope files
 cscope.*
